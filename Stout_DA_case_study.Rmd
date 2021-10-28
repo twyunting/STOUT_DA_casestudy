@@ -8,4 +8,247 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
+# Install the packages
+```{r, warning=FALSE}
+library(tidyverse) # tidy data
+library(corrplot) # visualize correlation
+library(tidymodels) # data modeling
+library(leaps) # model selections
+```
+
+# Case Study 1
+## Read the data
+See the first six observations of the data set.
+```{r, warning=FALSE}
+loans <- read_csv("./data/loans_full_schema.csv")
+head(loans)
+```
+Below is a data set that represents thousands of loans made through the Lending Club platform, which is a platform that allows individuals to lend to other individuals.\
+We would like you to perform the following using the language of your choice:
+- Describe the dataset and any issues with it.
+
+## Exploratory Data Analysis
+
+We are right, the data frame has 10,000 observationscand 55 variables.
+```{r}
+dim(loans)
+```
+
+
+We can see there are some variables have NAs:
+- `emp_title`: 833 
+- `emp_title`: 817 NAs
+- `debt_to_income`: 24 NAs
+- `annual_income_joint`: 8505 NAs
+- `verification_income_joint`: 8545 NAs
+- `debt_to_income_joint`: 8505 NAs
+- `months_since_last_delinq`: 5658 NAs
+- `months_since_90d_late`: 7715 NAs
+- `months_since_last_credit_inquiry`: 1271 NAs
+- `num_accounts_120d_past_due`: 318 NAs
+
+Before we build the model, we must take care of the variables with a high number of NAs.
+```{r}
+loans %>%
+summarise_all(funs(sum(is.na(.)))) 
+```
+
+Before we start to analyze data, we can see that the vast majority of data type is numerical and categorical.
+```{r}
+str(loans)
+```
+
+
+```{r}
+summary(loans)
+```
+
+## Data Visualization
+Generate a minimum of 5 unique visualizations using the data and write a brief description of your observations. Additionally, all attempts should be made to make the visualizations visually appealing.
+
+### Plot 1
+```{r}
+loans 
+  
+```
+
+# Case Study 2
+
+## Read the Data
+There is 1 dataset(csv) with 3 years’ worth of customer orders. There are 4 columns in the csv dataset: index, CUSTOMER_EMAIL (unique identifier as hash), Net Revenue, and Year.
+```{r}
+cust_orders <- read_csv("./data/customer_orders.csv")
+cust_orders
+```
+There is no NA in the dataset.
+```{r}
+cust_orders %>%
+summarise_all(funs(sum(is.na(.)))) 
+```
+
+## Tidy Data
+
+- Total revenue for the current year
+```{r}
+cust_orders %>%
+  group_by(year) %>%
+  summarise(tital_revenue = sum(net_revenue))
+```
+
+- New Customer Revenue e.g., **new customers not present in previous year only**
+
+  + Total new customer revenue in 2016: 17,206,367 dollars.
+  + Total new customer revenue in 2017: 16,146,519 dollars.
+```{r}
+cust_orders %>%
+ filter(year == 2015) -> orders_2015
+cust_orders %>%
+ filter(year == 2016) -> orders_2016
+cust_orders %>%
+ filter(year == 2017) -> orders_2017
+
+# New customer in 2016
+orders_2016 %>%
+  anti_join(orders_2015, by = "customer_email") -> tmp1
+sum(tmp1$net_revenue)
+
+# New customer in 2017
+orders_2016 %>%
+  anti_join(orders_2017, by = "customer_email") -> tmp2
+sum(tmp2$net_revenue)
+```
+
+- Existing Customer Growth. To calculate this, use the Revenue of existing customers for current year –(minus) Revenue of existing customers from the previous year
+
+The existing customer growths from 2015 to 2016 are shown in descending order below.
+```{r}
+orders_2015 %>%
+  inner_join(orders_2016, by = "customer_email") %>%
+  mutate(customer_growth_15_to_16 = net_revenue.y - net_revenue.x) %>%
+  select(customer_email, customer_growth_15_to_16) %>%
+  arrange(desc(customer_growth_15_to_16)) 
+```
+
+The existing customer growths from 2016 to 2017 are shown in descending order below.
+```{r}
+orders_2016 %>%
+  inner_join(orders_2017, by = "customer_email") %>%
+  mutate(customer_growth_16_to_17 = net_revenue.y - net_revenue.x) %>%
+  select(customer_email, customer_growth_16_to_17) %>%
+  arrange(desc(customer_growth_16_to_17))
+```
+
+- Revenue lost from attrition
+We know that the revenue attrition, or churn, refers to **the loss of business revenue from one period to the next**.
+
+In 2016, the company lost 20,551,216 in total revenue from customers in 2015.
+```{r}
+# return all rows from 2015 without a match in 2016 based on customer_email
+orders_2015 %>%
+  anti_join(orders_2016, by = "customer_email") -> attrition2016
+sum(attrition2016$net_revenue)
+```
+
+In 2017, the company lost 16,146,519 in total revenue from customers in 2016.
+```{r}
+# return all rows from 2016 without a match in 2017 based on customer_email
+orders_2016 %>%
+  anti_join(orders_2017, by = "customer_email") -> attrition2017
+sum(attrition2017$net_revenue)
+```
+
+- Existing Customer Revenue Current Year
+
+We assume the existing customers present in previous year only, so the total revenue from current year of the existing customers in 2016 is 8,524,577 dollars.
+```{r}
+# return all rows from 2016 with a match in 2015
+orders_2016 %>%
+  semi_join(orders_2015, by = "customer_email") -> current2016
+sum(current2016$net_revenue)
+```
+
+The total revenue from current year of the existing customers in 2017 is 9,648,282 dollars.
+```{r}
+# return all rows from 2017 with a match in 2016
+orders_2017 %>%
+  semi_join(orders_2016, by = "customer_email") -> current2017
+sum(current2017$net_revenue)
+```
+
+- Existing Customer Revenue Prior Year
+
+We assume the existing customers present in previous year only, so the total revenue from prior year of the existing customers in 2016 is 8,485,533 dollars.
+```{r}
+orders_2016 %>%
+  inner_join(orders_2015, by = "customer_email") -> prior2016
+sum(prior2016$net_revenue.y)
+```
+
+The total revenue from prior year of the existing customers in 2017 is 9,584,425 dollars.
+```{r}
+orders_2017 %>%
+  inner_join(orders_2016, by = "customer_email") -> prior2017
+sum(prior2017$net_revenue.y)
+```
+
+- Total Customers Current Year
+- Total Customers Previous Year
+
+There are 231,294 customers in 2015, 204,646 in 2016, and 249,987 in 2017.
+```{r}
+orders_2015 %>%
+  distinct(customer_email) %>%
+  nrow()
+
+orders_2016 %>%
+  distinct(customer_email) %>%
+  nrow()
+
+orders_2017 %>%
+  distinct(customer_email) %>%
+  nrow()  
+```
+
+- New Customers
+
+We assume that the new customers were not on the previous year's list. There are 136891 new customers in 2016.
+```{r}
+orders_2016 %>%
+  anti_join(orders_2015, by = "customer_email") %>%
+  distinct(customer_email) %>%
+  nrow()
+```
+
+In 2017, there are 173449 new customers.
+```{r}
+orders_2017 %>%
+  anti_join(orders_2016, by = "customer_email") %>%
+  distinct(customer_email) %>%
+  nrow()
+```
+
+- Lost Customers
+We assume that the lost customers were not on the next year's list.There are 163539 new customers in 2016.
+
+```{r}
+orders_2015 %>%
+  anti_join(orders_2016, by = "customer_email") %>%
+  distinct(customer_email) %>%
+  nrow()
+```
+
+In 2017, there are 128108 lost customers.
+```{r}
+orders_2016 %>%
+  anti_join(orders_2017, by = "customer_email") %>%
+  distinct(customer_email) %>%
+  nrow()
+```
+
+## Data Visualization
+Additionally, generate a few unique plots highlighting some information from the dataset. Are there any interesting observations?
+
+```{r}
+
+```
 
