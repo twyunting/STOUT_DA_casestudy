@@ -6,5 +6,5 @@ server: rpubs.com
 hostUrl: rpubs.com
 appId: https://api.rpubs.com/api/v1/document/828570/72a5548b14994c52a7a90e3677436751
 bundleId: https://api.rpubs.com/api/v1/document/828570/72a5548b14994c52a7a90e3677436751
-url: http://rpubs.com/publish/claim/828570/b07306b89d5a451da2da04060065d38a
-when: 1635461450.75411
+url: http://rpubs.com/twyunting/828570
+when: 1635462308.44605
