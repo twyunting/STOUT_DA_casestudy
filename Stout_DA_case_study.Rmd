@@ -92,7 +92,7 @@ summarise_all(funs(sum(is.na(.))))
 ```{r}
 cust_orders %>%
   group_by(year) %>%
-  summarise(tital_revenue = sum(net_revenue))
+  summarise(total_revenue = sum(net_revenue))
 ```
 
 - New Customer Revenue e.g., **new customers not present in previous year only**
@@ -248,7 +248,23 @@ orders_2016 %>%
 ## Data Visualization
 Additionally, generate a few unique plots highlighting some information from the dataset. Are there any interesting observations?
 
+## Plot1
+Plot the total revenue for each year
 ```{r}
+cust_orders %>%
+  group_by(year) %>%
+  summarise(total_revenue = sum(net_revenue)) %>%
+  ggplot(aes(x = as.factor(year), y = total_revenue)) +
+  geom_point() + 
+  theme_bw()
+```
 
+## Plot 2
+```{r}
+cust_orders %>%
+  distinct(customer_email, year) %>%
+  ggplot(aes(x = as.factor(year))) +
+  geom_bar() +
+  ggtitle("Total customers")
 ```
 
