@@ -2,18 +2,26 @@
 title: "Stout_DA_case_study"
 author: "Yunting Chiu"
 date: "10/27/2021"
-output: html_document
+output: 
+  html_document: 
+    theme: cerulean
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 # Install the packages
-```{r, warning=FALSE}
+```{r, include=FALSE}
 library(tidyverse) # tidy data
 library(corrplot) # visualize correlation
 library(tidymodels) # data modeling
 library(leaps) # model selections
+library(DataExplorer) # EDA
+library(tidymodels) # data modeling
+library(performance)
+library(vip) # variable importance plot
+library(broom)
+library(yardstick)
 ```
 
 # Case Study 1
@@ -29,48 +37,333 @@ We would like you to perform the following using the language of your choice:
 
 ## Exploratory Data Analysis
 
-We are right, the data frame has 10,000 observationscand 55 variables.
+We confirm that the data frame has 10,000 observations and 55 variables based on the data description.
 ```{r}
 dim(loans)
 ```
 
+Before we build models, we should consider how to deal with variables that have a large number of NAs. If we directly reduce the observations that include NA, we can see that the number of observations drops from 10000 to 201, meaning that we may have lost information in the data. We know that our target variable is `interest_rate`, so we should manually check whether theses NAs variables are relevant to the target variable($y$). Also, if the variables have a large number of NAs, meaning that it is not good predictors. We should remove it.
 
-We can see there are some variables have NAs:
-- `emp_title`: 833 
-- `emp_title`: 817 NAs
-- `debt_to_income`: 24 NAs
-- `annual_income_joint`: 8505 NAs
-- `verification_income_joint`: 8545 NAs
-- `debt_to_income_joint`: 8505 NAs
-- `months_since_last_delinq`: 5658 NAs
-- `months_since_90d_late`: 7715 NAs
-- `months_since_last_credit_inquiry`: 1271 NAs
-- `num_accounts_120d_past_due`: 318 NAs
+We can see there are some variables that include NAs:
+- `emp_title`: 833 - not relevant to y, remove it
+- `emp_length`: 817 NAs - keep it
+- `debt_to_income`: 24 NAs - keep it
+- `annual_income_joint`: 8505 NAs - too many NAs remove it
+- `verification_income_joint`: 8545 NAs - too many NAs remove it
+- `debt_to_income_joint`: 8505 NAs - too many NAs remove it
+- `months_since_last_delinq`: 5658 NAs - too many NAs remove it
+- `months_since_90d_late`: 7715 NAs - too many NAs remove it
+- `months_since_last_credit_inquiry`: 1271 NAs - too many NAs remove it
+- `num_accounts_120d_past_due`: 318 NAs - keep it
 
-Before we build the model, we must take care of the variables with a high number of NAs.
 ```{r}
 loans %>%
 summarise_all(funs(sum(is.na(.)))) 
+
+# original data
+loans %>%
+  nrow()
+
+# droped NAs
+loans %>%
+  drop_na() %>% 
+  nrow()
 ```
 
-Before we start to analyze data, we can see that the vast majority of data type is numerical and categorical.
+Our data now has no NA, and it still has large sample sizes (8886 observations), which is good.
 ```{r}
-str(loans)
+# remove some variables that include large number of NA
+loans %>%
+  select(-emp_title, -annual_income_joint, -verification_income_joint, -debt_to_income_joint,
+         -months_since_last_delinq, -months_since_90d_late, -months_since_last_credit_inquiry) %>%
+  drop_na() -> loansNONAs
+
+loansNONAs %>%
+summarise_all(funs(sum(is.na(.)))) 
+
+loansNONAs %>%
+  nrow()
 ```
 
-
+We can also check which numerical variables have a higher collinearity with the target variable `interest rate`. The variable with high collinearity means it is not a good predictor.
 ```{r}
-summary(loans)
+loans %>%
+  select_if(is.numeric) -> num_loans
+reg <- lm(interest_rate ~., data = num_loans)
+check_collinearity(reg)
 ```
+
 
 ## Data Visualization
-Generate a minimum of 5 unique visualizations using the data and write a brief description of your observations. Additionally, all attempts should be made to make the visualizations visually appealing.
+- Generate a minimum of 5 unique visualizations using the data and write a brief description of your observations. Additionally, all attempts should be made to make the visualizations visually appealing.
 
 ### Plot 1
+
+The first plot from the analysis confirms the types of variables in the data. There are no missing values in the data now. Also, 23% of the variables are categorical, and 77 % of the variables are numerical.
 ```{r}
-loans 
-  
+plot_intro(loansNONAs)
 ```
+
+### Plot 2
+
+The bar plot shows the categorical variables in the data. According to the bar plot below, we can see
+some levels seem to have low frequencies, such as `joint` in the `application_type` and `Charged Off` in the `loan_status`.
+```{r}
+plot_bar(loansNONAs)
+```
+
+### Plot 3
+
+Now we only focus on the numerical features, we can see there are some variables have a high correlation with `interest_rate`, such as `loan_amount`, ` balance`. These variables with high correlation may not be good predictors.
+```{r}
+loansNONAs %>%
+  select_if(is.numeric) -> num_loans
+correlation <- cor(num_loans)
+corrplot(correlation, method="color", addCoef.col = "black", number.cex = 0.5, type = "lower")
+```
+
+### Plot 4
+We can see the ownership status of the applicant's residence is not the main factor to affect the Interest rate of the loan the applicant received. The median interest rates of these three are nearly identical.
+```{r}
+loansNONAs %>%
+  ggplot(aes(x = homeownership, y = interest_rate)) +
+  geom_boxplot()
+```
+
+### Plot 5
+
+According to the results, compared to other states, DC and NC have the higher verified average income, meaning that despite having higher incomes, these area's people still want to apply for loans.
+```{r}
+loansNONAs %>%
+  #filter(verified_income == "Verified") %>%
+  group_by(state, verified_income) %>%
+  summarise(avg_income = mean(annual_income)) %>%
+  arrange(desc(avg_income)) %>%
+  ggplot(aes(x = state, y = avg_income, color = verified_income)) +
+  geom_point() +
+  coord_flip() +
+  theme_bw()
+```
+
+## Feature Selection
+
+To make things easier, we're only focusing on the numerical features right now. In other words, there are 32 features and one response variable. Now, we'll use random forest to identify which are the most important variables in terms of `interest_rate`. The R squared (OOB) is 0.8, meaning that the algorithm performs not bad. The important score of the first five variables is greater than 10000. We will use the first five important features as predictors. That is, we will choose `paid_interest`, `paid_principal`, `paid_total`, `total_debit_limit`, and `term` as our independent variables.
+```{r}
+loans_train_split <- initial_split(num_loans, prop = 0.8)
+set.seed(1234)
+loans_train <- training(loans_train_split)
+loans_test <- testing(loans_train_split)
+
+rand_forest_ranger_spec <-
+  rand_forest() %>%
+  set_engine('ranger', importance = "impurity") %>%
+  set_mode('regression') 
+rand_forest_ranger_spec
+
+rf_fit <- fit(rand_forest_ranger_spec, interest_rate ~., data = loans_train)
+rf_fit
+
+vip(rf_fit$fit)
+```
+
+## Data Modeling
+
+- Create a feature set and create a model which predicts interest rate using at least 2 algorithms. Describe any data cleansing that must be performed and analysis when examining the data.
+- Visualize the test results and propose enhancements to the model, what would you do if you had more time. Also describe assumptions you made and your approach.
+
+Firstly, we can consider using the simplest machine learning model: linear regression model. We can see `total_debit_limit`, `term` and `b0` are in the significant level. However, with the low adjusted R-squared value: 0.38%, the model doesn't follow the linear trend. We can give it a shot if we include regularization in the model. Hence, we will begin by attempting to use lasso regression model.
+
+```{r}
+# Bad result from the linear model
+reg <- lm(interest_rate~ paid_interest+paid_principal+ paid_total+total_debit_limit+term,
+          data = num_loans)
+summary(reg)
+```
+
+### Lasso Regression with the optimal regularization
+```{r}
+num_loans %>%
+  select(interest_rate, paid_interest, paid_principal, paid_total, total_debit_limit, term) -> loans_model_df
+
+set.seed(1234)
+loans_split <- initial_split(loans_model_df, prop = 0.8)
+loans_train <- training(loans_split)
+loans_test  <- testing(loans_split)
+```
+
+
+```{r}
+lasso_spec <- linear_reg(mixture = 1, penalty = tune()) %>%
+  set_mode("regression") %>%
+  set_engine("glmnet")
+
+lasso_rec <- recipe(interest_rate ~., data = loans_train) %>%
+  step_normalize(all_predictors()) %>%
+  step_zv(all_predictors()) 
+```
+create a workflow
+```{r}
+lasso_wf <- workflow() %>%
+  add_model(lasso_spec) %>%
+  add_recipe(lasso_rec)
+```
+
+create 10-Fold Cross-Validation in the training data set.
+```{r}
+set.seed(1234)
+loans_folds <- vfold_cv(loans_train, strata = interest_rate, v = 10)
+loans_folds$splits
+```
+Regularly predict the penalty 50 times using regular grids, with the penalty range limited to $10^{−5}$ to 0. Note, these are in transformed units, the default transformation is log10.
+```{r}
+penalty_grid <- grid_regular(penalty(range = c(-5, 0)), levels = 100)
+penalty_grid
+```
+
+```{r}
+tune_res <- tune_grid(
+  lasso_wf,
+  resamples = loans_folds,
+  grid = penalty_grid
+)
+```
+
+Display the each penalty on rmse and rsq, respectively.
+```{r}
+set.seed(1234)
+tune_res %>%
+  collect_metrics() %>%
+  head()
+```
+Display the best rmse and rsq values of penalty
+```{r}
+tune_res %>%
+  show_best(metric = "rsq") %>%
+  head(1)
+```
+```{r}
+tune_res %>%
+  show_best(metric = "rmse") %>%
+  head(1)
+```
+We can see the best regularization value is 0.043 based on rsq, the the best regularization value is 0.03 based on rmse. We will use the smallest rmse to fit the model.
+```{r}
+tune_res %>%
+  autoplot() +
+  geom_vline(xintercept = 0.04328761, color = "red") +
+  geom_vline(xintercept = 0.03053856, color = "blue")
+```
+```{r}
+best_rmse <- select_best(tune_res, metric = "rmse")
+best_rmse
+```
+```{r}
+lasso_final <- finalize_workflow(lasso_wf, best_rmse)
+
+lasso_final_fit <- fit(lasso_final, data = loans_train) 
+```
+
+### Performance
+```{r}
+augment(lasso_final_fit, new_data = loans_test) %>%
+  yardstick::rmse(truth = interest_rate, estimate = .pred)
+```
+
+### Visualization
+The range of `interest_rate` is from 5.31 to 30.94 from the original data set. Based on the plot below, we can conclude that the model does not work well, tuning $\lambda$ appears to have no obvious benefit in the model. We should try to reduce the $RMSE$.
+```{r}
+augment(lasso_final_fit, new_data = loans_test) %>%
+  ggplot(aes(interest_rate, .pred)) +
+  geom_abline(slope = 1, intercept = 0) +
+  geom_point() +
+  theme_bw() +
+  ggtitle("Lasso Prediction of interest rate")
+```
+
+The number of observations is greater then the number of features, so that the L1 and L2 regularization methods are not the wise choices.
+
+## Random Forest with all numerical predictors
+
+Next, we try to add all numerical variables as predictors. That is, 36 variables as X and 1 target variable as y. This time we will use random forest algorithm. 
+```{r}
+num_loans %>%
+  #this is our target variable
+  select(-interest_rate) %>%
+  length()
+```
+Taking 80 % observations as training set and taking 20 % observations as testing set.
+```{r}
+loans_split2 <- initial_split(num_loans, prop = 0.8)
+set.seed(1234)
+loans_train2 <- training(loans_split2)
+loans_test2 <- testing(loans_split2)
+```
+
+As usual, we fit the model. In comparison to the lasso regression, we discovered that the rmse of random forest is dramatically reduced from 3.96 to 1.28.
+```{r}
+set.seed(1234)
+# mtry = .cols(): the number of columns in the predictor matrix is used
+rd_spec <- rand_forest(mtry = .cols()) %>%
+  set_engine("randomForest", importance = TRUE) %>%
+  set_mode("regression")
+
+rd_fit <- fit(rd_spec, interest_rate ~ ., data = loans_train2)
+augment(rd_fit, new_data = loans_test2) %>%
+  yardstick::rmse(truth = interest_rate, estimate = .pred)
+```
+### Visualization
+We can also create a quick scatter plot between the true and predicted value to see if we can make any diagnostics. The predicted values are almost closer to the ground truths.
+```{r}
+augment(rd_fit, new_data = loans_test2) %>%
+  ggplot(aes(interest_rate, .pred)) +
+  geom_abline() +
+  geom_point(alpha = 0.5)
+```
+
+Next, let's take a look at the variable importance
+```{r}
+vip(rd_fit)
+```
+
+## Random Forest with only 3 predictors
+
+Now we only add top three importance variables in the random forest model. In reality, a smaller predictor in ML models can save time for data collection. And we can rapidly run the model and make marketing strategies more easily.
+
+```{r}
+num_loans %>%
+  select(interest_rate, paid_interest, paid_principal, term) -> loans_threeFeatures
+  
+loans_split3 <- initial_split(loans_threeFeatures, prop = 0.8)
+set.seed(1234)
+loans_train3 <- training(loans_split3)
+loans_test3 <- testing(loans_split3)
+```
+
+The $RMSE$ is still less than 2, indicating that the model is still performing well. The advantage is that even though we only have three predictors, we can still keep the model performing well.
+```{r}
+set.seed(1234)
+# mtry = .cols(): the number of columns in the predictor matrix is used
+rd_spec2 <- rand_forest(mtry = .cols()) %>%
+  set_engine("randomForest", importance = TRUE) %>%
+  set_mode("regression")
+
+rd_fit2 <- fit(rd_spec2, interest_rate ~ ., data = loans_train3)
+augment(rd_fit2, new_data = loans_test3) %>%
+  yardstick::rmse(truth = interest_rate, estimate = .pred)
+```
+
+### Visualization
+```{r}
+augment(rd_fit2, new_data = loans_test3) %>%
+  ggplot(aes(interest_rate, .pred)) +
+  geom_abline() +
+  geom_point(alpha = 0.5)
+```
+## Conclusion
+
+Finally, if we need to predict the `interest_rate` based on given data, I recommend using `paid interest`, `paid principal`, and `term` by running the random forest algorithm to quickly provide business insights with limited time.
+
+If I have more time, I'll use a recursive feature elimination algorithm and combine all numerical and categorical variables to perform feature selection. `library(caret)` is a good R package to do a feature selection. Secondly, we removed some observations due to the large number of NAs. There are some approaches that can be taken in this situation. For example, predicting missing values or replacing NAs with mean/medians mode. Finally, I believe we should try to reduce the features to make it more efficient, so if I have time, I will try to run more 3-5 feature combinations in different regression models.
 
 # Case Study 2
 
@@ -302,7 +595,7 @@ en_20162017 %>%
 ```
 
 ## Plot 2
-According to data from 2016 and 2017, the number of new customers is always greater than the number of existing customers. The customer should begin to consider ways to increase customer engagement.
+According to data from 2016 and 2017, the number of new customers is always greater than the number of existing customers. The company should begin to consider ways to increase customer engagement.
 ```{r}
 en_20162017 %>%
   group_by(year, status) %>%
@@ -313,10 +606,6 @@ en_20162017 %>%
   ggtitle("Number of Customers") 
 ```
 
-## Plot 3
-```{r}
-
-```
 
 
 
