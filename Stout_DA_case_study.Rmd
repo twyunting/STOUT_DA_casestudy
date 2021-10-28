@@ -21,7 +21,7 @@ library(DataExplorer) # EDA
 library(tidymodels) # data modeling
 library(performance)
 library(vip) # variable importance plot
-library(yardstick) #rmse
+library(yardstick) # rmse
 ```
 
 # Case Study 1
@@ -375,6 +375,7 @@ augment(rd_fit2, new_data = loans_test3) %>%
   geom_point(alpha = 0.5) +
   ggtitle("Random Forest with 3 numerical predictors")
 ```
+
 ## Conclusion
 
 Finally, if we need to predict the `interest_rate` based on given data, I recommend using `paid interest`, `paid principal`, and `term` by running the random forest algorithm to quickly provide business insights with limited time.
