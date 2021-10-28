@@ -2,9 +2,10 @@
 title: "Stout_DA_case_study"
 author: "Yunting Chiu"
 date: "10/27/2021"
-output: 
-  html_document: 
+output:
+  html_document:
     theme: cerulean
+  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -220,7 +221,7 @@ loans_folds$splits
 
 #### Grid Search
 
-Regularly predict the penalty 100 times using regular grids, with the penalty range limited to $10^{−5}$ to 1.
+Regularly predict the penalty 100 times using regular grids, with the penalty range limited to 0.00001 to 1.
 ```{r}
 penalty_grid <- grid_regular(penalty(range = c(-5, 0)), levels = 100)
 penalty_grid
